@@ -133,54 +133,68 @@ export function RegistrationModal({
       fbqTrackLead({ content_name: 'Workshop Registration', school_name: schoolName.trim() }, `lead_${data.registrationId}`);
       fbqTrackInitiateCheckout(price, `initiate_${data.registrationId}`);
 
-      // 3. Check if real Razorpay is available in window
-      if (typeof window !== 'undefined' && (window as any).Razorpay && !data.isSandbox && data.keyId !== 'rzp_test_placeholder') {
-        const options = {
-          key: data.keyId,
-          amount: data.amount,
-          currency: data.currency,
-          name: 'Garvi Education',
-          description: 'School Management Workshop Fee',
-          order_id: data.orderId,
-          prefill: {
-            name: fullName.trim(),
-            email: email.trim(),
-            contact: cleanMobile,
-          },
-          theme: {
-            color: '#0A192F',
-          },
-          handler: async function (response: any) {
-            await verifyPayment({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-              registration_id: data.registrationId,
-            });
-          },
-          modal: {
-            ondismiss: function () {
-              setIsLoading(false);
-            },
-          },
-        };
+      // 3. Check if real Razorpay is configured
+      if (!data.isSandbox && data.keyId && data.keyId !== 'rzp_test_placeholder') {
+        const scriptLoaded = await new Promise<boolean>((resolve) => {
+          if (typeof window !== 'undefined' && (window as any).Razorpay) {
+            return resolve(true);
+          }
+          const script = document.createElement('script');
+          script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+          script.onload = () => resolve(true);
+          script.onerror = () => resolve(false);
+          document.body.appendChild(script);
+        });
 
-        const rzp = new (window as any).Razorpay(options);
-        rzp.on('payment.failed', function (resp: any) {
-          setErrorMessage(resp.error?.description || 'Payment was declined or cancelled. Please try again.');
-          setIsLoading(false);
-        });
-        rzp.open();
-      } else {
-        // Test / Sandbox mode: Provide immediate simulator so user can verify full flow
-        setSandboxOrderData({
-          registrationId: data.registrationId,
-          orderId: data.orderId,
-          amount: data.amount,
-          keyId: data.keyId,
-        });
-        setIsLoading(false);
+        if (scriptLoaded && typeof window !== 'undefined' && (window as any).Razorpay) {
+          const options = {
+            key: data.keyId,
+            amount: data.amount,
+            currency: data.currency,
+            name: 'Garvi Education',
+            description: 'School Management Workshop Fee',
+            order_id: data.orderId,
+            prefill: {
+              name: fullName.trim(),
+              email: email.trim(),
+              contact: cleanMobile,
+            },
+            theme: {
+              color: '#0A192F',
+            },
+            handler: async function (response: any) {
+              await verifyPayment({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                registration_id: data.registrationId,
+              });
+            },
+            modal: {
+              ondismiss: function () {
+                setIsLoading(false);
+              },
+            },
+          };
+
+          const rzp = new (window as any).Razorpay(options);
+          rzp.on('payment.failed', function (resp: any) {
+            setErrorMessage(resp.error?.description || 'Payment was declined or cancelled. Please try again.');
+            setIsLoading(false);
+          });
+          rzp.open();
+          return;
+        }
       }
+
+      // Test / Sandbox mode: Provide immediate simulator so user can verify full flow
+      setSandboxOrderData({
+        registrationId: data.registrationId,
+        orderId: data.orderId,
+        amount: data.amount,
+        keyId: data.keyId,
+      });
+      setIsLoading(false);
     } catch (err: any) {
       setErrorMessage(err.message || 'Something went wrong. Please try again.');
       setIsLoading(false);

@@ -22,10 +22,29 @@ export default function ContactPage() {
   const [school, setSchool] = useState('');
   const [message, setMessage] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, mobile, email, school, message }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to submit message.');
+      }
+      setSubmitted(true);
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -231,12 +250,25 @@ export default function ContactPage() {
                     />
                   </div>
 
+                  {error && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+                      {error}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
-                    className="w-full inline-flex items-center justify-center gap-2 bg-[#0A192F] hover:bg-[#152544] text-white font-bold text-sm py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95"
+                    disabled={loading}
+                    className="w-full inline-flex items-center justify-center gap-2 bg-[#0A192F] hover:bg-[#152544] disabled:bg-slate-400 text-white font-bold text-sm py-3.5 px-6 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer"
                   >
-                    <Send className="w-4 h-4" />
-                    <span>Submit Inquiry</span>
+                    {loading ? (
+                      <span>Sending inquiry...</span>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>Submit Inquiry</span>
+                      </>
+                    )}
                   </button>
                 </form>
               )}

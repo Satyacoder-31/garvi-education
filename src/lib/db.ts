@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Registration, WorkshopSettings, NotificationLog, AnalyticsEvent } from './types';
+import { Registration, WorkshopSettings, NotificationLog, AnalyticsEvent, ContactMessage } from './types';
 
 // Determine a writable data directory (uses /tmp on Vercel/serverless environments)
 function getDataDir(): string {
@@ -23,10 +23,12 @@ interface DatabaseSchema {
   workshop_settings: WorkshopSettings;
   notifications_log: NotificationLog[];
   analytics_events: AnalyticsEvent[];
+  contact_messages: ContactMessage[];
   counters: {
     registrationId: number;
     notificationId: number;
     analyticsId: number;
+    contactId: number;
   };
 }
 
@@ -46,6 +48,17 @@ const defaultSettings: WorkshopSettings = {
   contact_phone: '+91 94251 00000',
   contact_address: 'Garvi Education, Civil Lines, Rewa, Madhya Pradesh 486001',
   meta_pixel_id: '',
+  // Default Razorpay Dynamic Configuration
+  razorpay_env: 'test',
+  razorpay_key_id: process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
+  razorpay_key_secret: process.env.RAZORPAY_KEY_SECRET || '',
+  razorpay_webhook_secret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+  // Default Homepage Copy
+  hero_headline: 'Transform the Way You Manage Your School.',
+  hero_subheadline: 'Join our practical online workshop to explore smarter approaches to school administration, student records, fee management, attendance, and everyday school operations.',
+  hero_badge: 'GARVI EDUCATION PRESENTS | Online Workshop',
+  announcement_text: 'Online School Management Workshop • Saturday, 25 October 2026 • 6:00 PM IST',
+  whatsapp_support_number: '9425100000',
 };
 
 const initialData: DatabaseSchema = {
@@ -53,10 +66,12 @@ const initialData: DatabaseSchema = {
   workshop_settings: defaultSettings,
   notifications_log: [],
   analytics_events: [],
+  contact_messages: [],
   counters: {
     registrationId: 1,
     notificationId: 1,
     analyticsId: 1,
+    contactId: 1,
   },
 };
 
@@ -76,6 +91,15 @@ function loadStore(): DatabaseSchema {
       memoryStore = JSON.parse(content);
       if (!memoryStore?.workshop_settings) {
         memoryStore!.workshop_settings = defaultSettings;
+      } else {
+        // Merge missing keys with defaults
+        memoryStore!.workshop_settings = { ...defaultSettings, ...memoryStore!.workshop_settings };
+      }
+      if (!memoryStore?.contact_messages) {
+        memoryStore!.contact_messages = [];
+      }
+      if (!memoryStore?.counters?.contactId) {
+        memoryStore!.counters = { ...initialData.counters, ...(memoryStore!.counters || {}) };
       }
       return memoryStore!;
     }
@@ -94,7 +118,6 @@ function saveStore(): void {
     const filePath = getStoreFilePath();
     fs.writeFileSync(filePath, JSON.stringify(memoryStore, null, 2), 'utf-8');
   } catch (err) {
-    // If saving to disk fails (e.g. read-only filesystem), in-memory store continues to function
     console.warn('Database save warning (using memory storage):', err);
   }
 }
@@ -203,6 +226,31 @@ export function updateRegistrationStatus(registrationId: string, status: string)
   }
 }
 
+export function updateRegistration(
+  registrationId: string,
+  updates: Partial<Registration>
+): Registration | null {
+  const store = loadStore();
+  const reg = store.registrations.find((r) => r.registration_id === registrationId);
+  if (reg) {
+    Object.assign(reg, updates, { updated_at: new Date().toISOString() });
+    saveStore();
+    return reg;
+  }
+  return null;
+}
+
+export function deleteRegistration(registrationId: string): boolean {
+  const store = loadStore();
+  const index = store.registrations.findIndex((r) => r.registration_id === registrationId);
+  if (index !== -1) {
+    store.registrations.splice(index, 1);
+    saveStore();
+    return true;
+  }
+  return false;
+}
+
 export function logNotification(data: {
   registration_id: string;
   channel: 'email' | 'whatsapp';
@@ -252,6 +300,58 @@ export function recordAnalyticsEvent(
   saveStore();
 }
 
+// Contact messages handlers
+export function createContactMessage(data: {
+  name: string;
+  mobile: string;
+  email: string;
+  school: string;
+  message: string;
+}): ContactMessage {
+  const store = loadStore();
+  const id = store.counters.contactId++;
+  const entry: ContactMessage = {
+    id,
+    name: data.name,
+    mobile: data.mobile,
+    email: data.email,
+    school: data.school,
+    message: data.message,
+    status: 'new',
+    created_at: new Date().toISOString(),
+  };
+  store.contact_messages.unshift(entry);
+  saveStore();
+  return entry;
+}
+
+export function getContactMessages(): ContactMessage[] {
+  const store = loadStore();
+  return store.contact_messages || [];
+}
+
+export function updateContactMessageStatus(id: number, status: 'new' | 'contacted' | 'resolved'): boolean {
+  const store = loadStore();
+  const msg = store.contact_messages.find((m) => m.id === id);
+  if (msg) {
+    msg.status = status;
+    saveStore();
+    return true;
+  }
+  return false;
+}
+
+export function deleteContactMessage(id: number): boolean {
+  const store = loadStore();
+  const idx = store.contact_messages.findIndex((m) => m.id === id);
+  if (idx !== -1) {
+    store.contact_messages.splice(idx, 1);
+    saveStore();
+    return true;
+  }
+  return false;
+}
+
 // SQL compatibility layer for existing query-based API routes
 export const db = {
   prepare(sql: string) {
@@ -264,7 +364,6 @@ export const db = {
         if (normalized.includes('SELECT COUNT(*) as total FROM registrations') || (normalized.includes('COUNT(*)') && normalized.includes('registrations') && !normalized.includes('WHERE status'))) {
           let list = [...store.registrations];
           if (params.length > 0) {
-            // Apply search filters
             const searchParam = params[0]?.replace?.(/%/g, '').toLowerCase() || '';
             const statusParam = params[params.length - 1];
             if (searchParam) {
@@ -319,7 +418,6 @@ export const db = {
           return match ? { id: match.id } : null;
         }
 
-        // 7. Generic single row queries
         return null;
       },
 
@@ -349,7 +447,6 @@ export const db = {
             }
           }
 
-          // Check for limit/offset
           const numericParams = params.filter((p) => typeof p === 'number');
           if (numericParams.length >= 2) {
             const [limit, offset] = numericParams;

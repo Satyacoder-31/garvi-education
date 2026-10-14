@@ -47,6 +47,28 @@ export interface WorkshopSettings {
   contact_phone: string;
   contact_address: string;
   meta_pixel_id: string;
+  // Razorpay Gateway dynamic configuration
+  razorpay_env?: 'test' | 'production';
+  razorpay_key_id?: string;
+  razorpay_key_secret?: string;
+  razorpay_webhook_secret?: string;
+  // Website copy & customization
+  hero_headline?: string;
+  hero_subheadline?: string;
+  hero_badge?: string;
+  announcement_text?: string;
+  whatsapp_support_number?: string;
+}
+
+export interface ContactMessage {
+  id: number;
+  name: string;
+  mobile: string;
+  email: string;
+  school: string;
+  message: string;
+  status: 'new' | 'contacted' | 'resolved';
+  created_at: string;
 }
 
 export interface NotificationLog {

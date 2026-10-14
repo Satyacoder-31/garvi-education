@@ -23,16 +23,35 @@ export default function GarviLandingPage() {
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
 
-  // Settings state (can also be loaded dynamically or fall back to defaults)
-  const workshopDate = 'Saturday, 25 October 2026';
-  const workshopTime = '6:00 PM IST';
-  const duration = '2 Hours Live Interactive Session';
-  const price = 199;
+  const [settings, setSettings] = useState({
+    workshop_title: 'Online School Management Workshop',
+    workshop_date: 'Saturday, 25 October 2026',
+    workshop_time: '6:00 PM IST',
+    duration: '2 Hours Live Interactive Session',
+    price: 199,
+    whatsapp_group_link: 'https://chat.whatsapp.com/GarviEducationWorkshop',
+    preview_video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+  });
 
   useEffect(() => {
     // Capture and persist UTM tags from URL on mount
     captureUtmParamsFromUrl();
+
+    // Fetch dynamic workshop settings configured by admin
+    fetch('/api/settings')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.settings) {
+          setSettings((prev) => ({ ...prev, ...data.settings }));
+        }
+      })
+      .catch((err) => console.warn('Could not load dynamic settings:', err));
   }, []);
+
+  const workshopDate = settings.workshop_date;
+  const workshopTime = settings.workshop_time;
+  const duration = settings.duration;
+  const price = settings.price;
 
   const openRegisterModal = () => {
     setIsRegisterModalOpen(true);
