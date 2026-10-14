@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
 
     // Lookup registration by registration_id or order_id
     let registration = registration_id
-      ? getRegistrationById(registration_id)
-      : getRegistrationByOrderId(razorpay_order_id);
+      ? await getRegistrationById(registration_id)
+      : await getRegistrationByOrderId(razorpay_order_id);
 
     if (!registration) {
       return NextResponse.json(
@@ -53,14 +53,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Server-side HMAC SHA256 Signature Verification
-    const isValid = verifyRazorpaySignature(
+    const isValid = await verifyRazorpaySignature(
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature
     );
 
     if (!isValid) {
-      updateRegistrationStatus(registration.registration_id, 'payment_failed');
+      await updateRegistrationStatus(registration.registration_id, 'payment_failed');
       recordAnalyticsEvent('payment_failed', registration.registration_id);
       return NextResponse.json(
         { error: 'Invalid payment signature. Payment verification failed.' },
@@ -69,13 +69,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Mark registration as confirmed in DB
-    const confirmedRegistration = updateRegistrationPaymentSuccess(
+    const confirmedRegistration = await updateRegistrationPaymentSuccess(
       registration.registration_id,
       razorpay_payment_id,
       razorpay_signature
     );
 
-    const settings = getWorkshopSettings();
+    const settings = await getWorkshopSettings();
 
     // Trigger AiSensy WhatsApp Automation
     sendWhatsAppConfirmation({

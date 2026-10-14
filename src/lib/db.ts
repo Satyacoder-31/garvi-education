@@ -1,36 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import { Pool } from 'pg';
 import { Registration, WorkshopSettings, NotificationLog, AnalyticsEvent, ContactMessage } from './types';
-
-// Determine a writable data directory (uses /tmp on Vercel/serverless environments)
-function getDataDir(): string {
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    return '/tmp';
-  }
-  const localDir = path.join(process.cwd(), 'data');
-  try {
-    if (!fs.existsSync(localDir)) {
-      fs.mkdirSync(localDir, { recursive: true });
-    }
-    return localDir;
-  } catch {
-    return '/tmp';
-  }
-}
-
-interface DatabaseSchema {
-  registrations: Registration[];
-  workshop_settings: WorkshopSettings;
-  notifications_log: NotificationLog[];
-  analytics_events: AnalyticsEvent[];
-  contact_messages: ContactMessage[];
-  counters: {
-    registrationId: number;
-    notificationId: number;
-    analyticsId: number;
-    contactId: number;
-  };
-}
 
 const defaultSettings: WorkshopSettings = {
   id: 1,
@@ -48,7 +17,7 @@ const defaultSettings: WorkshopSettings = {
   contact_phone: '+91 94251 00000',
   contact_address: 'Garvi Education, Civil Lines, Rewa, Madhya Pradesh 486001',
   meta_pixel_id: '',
-  // Default Razorpay Dynamic Configuration
+  // Razorpay Dynamic Configuration
   razorpay_env: 'test',
   razorpay_key_id: process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
   razorpay_key_secret: process.env.RAZORPAY_KEY_SECRET || '',
@@ -61,85 +30,184 @@ const defaultSettings: WorkshopSettings = {
   whatsapp_support_number: '9425100000',
 };
 
-const initialData: DatabaseSchema = {
-  registrations: [],
-  workshop_settings: defaultSettings,
-  notifications_log: [],
-  analytics_events: [],
-  contact_messages: [],
-  counters: {
-    registrationId: 1,
-    notificationId: 1,
-    analyticsId: 1,
-    contactId: 1,
-  },
-};
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  'postgresql://postgres.zhkexnxgvtlvmogksfej:DrOrthosSecure2026@aws-0-ap-south-1.pooler.supabase.com:6543/postgres';
 
-let memoryStore: DatabaseSchema | null = null;
+let pool: Pool | null = null;
+let cachedSettings: WorkshopSettings | null = null;
 
-function getStoreFilePath(): string {
-  return path.join(getDataDir(), 'garvi_data.json');
+export function getPool(): Pool {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+    pool.on('error', (err) => {
+      console.error('Unexpected error on idle pg client pool:', err);
+    });
+  }
+  return pool;
 }
 
-function loadStore(): DatabaseSchema {
-  if (memoryStore) return memoryStore;
+function mapRegistrationRow(row: any): Registration {
+  return {
+    id: row.id,
+    registration_id: row.registration_id,
+    full_name: row.full_name,
+    mobile: row.mobile,
+    email: row.email,
+    school_name: row.school_name,
+    city: row.city,
+    role: row.role,
+    amount: Number(row.amount),
+    currency: row.currency || 'INR',
+    status: row.status,
+    razorpay_order_id: row.razorpay_order_id || undefined,
+    razorpay_payment_id: row.razorpay_payment_id || undefined,
+    razorpay_signature: row.razorpay_signature || undefined,
+    utm_source: row.utm_source || undefined,
+    utm_medium: row.utm_medium || undefined,
+    utm_campaign: row.utm_campaign || undefined,
+    utm_content: row.utm_content || undefined,
+    utm_term: row.utm_term || undefined,
+    created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+    updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+  };
+}
 
-  const filePath = getStoreFilePath();
+function mapSettingsRow(row: any): WorkshopSettings {
+  return {
+    id: 1,
+    workshop_title: row.workshop_title || defaultSettings.workshop_title,
+    workshop_date: row.workshop_date || defaultSettings.workshop_date,
+    workshop_time: row.workshop_time || defaultSettings.workshop_time,
+    duration: row.duration || defaultSettings.duration,
+    price: Number(row.price) || defaultSettings.price,
+    max_seats: Number(row.max_seats) || defaultSettings.max_seats,
+    whatsapp_group_link: row.whatsapp_group_link || defaultSettings.whatsapp_group_link,
+    preview_video_url: row.preview_video_url || defaultSettings.preview_video_url,
+    instructor_name: row.instructor_name || defaultSettings.instructor_name,
+    instructor_role: row.instructor_role || defaultSettings.instructor_role,
+    contact_email: row.contact_email || defaultSettings.contact_email,
+    contact_phone: row.contact_phone || defaultSettings.contact_phone,
+    contact_address: row.contact_address || defaultSettings.contact_address,
+    meta_pixel_id: row.meta_pixel_id || '',
+    razorpay_env: row.razorpay_env || 'test',
+    razorpay_key_id: row.razorpay_key_id || '',
+    razorpay_key_secret: row.razorpay_key_secret || '',
+    razorpay_webhook_secret: row.razorpay_webhook_secret || '',
+    hero_headline: row.hero_headline || defaultSettings.hero_headline,
+    hero_subheadline: row.hero_subheadline || defaultSettings.hero_subheadline,
+    hero_badge: row.hero_badge || defaultSettings.hero_badge,
+    announcement_text: row.announcement_text || defaultSettings.announcement_text,
+    whatsapp_support_number: row.whatsapp_support_number || defaultSettings.whatsapp_support_number,
+  };
+}
+
+// ---------------- Workshop Settings Operations ----------------
+
+export async function getWorkshopSettings(): Promise<WorkshopSettings> {
   try {
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      memoryStore = JSON.parse(content);
-      if (!memoryStore?.workshop_settings) {
-        memoryStore!.workshop_settings = defaultSettings;
-      } else {
-        // Merge missing keys with defaults
-        memoryStore!.workshop_settings = { ...defaultSettings, ...memoryStore!.workshop_settings };
-      }
-      if (!memoryStore?.contact_messages) {
-        memoryStore!.contact_messages = [];
-      }
-      if (!memoryStore?.counters?.contactId) {
-        memoryStore!.counters = { ...initialData.counters, ...(memoryStore!.counters || {}) };
-      }
-      return memoryStore!;
+    const clientPool = getPool();
+    const res = await clientPool.query('SELECT * FROM garvi_settings WHERE id = 1 LIMIT 1');
+    if (res.rows.length > 0) {
+      cachedSettings = mapSettingsRow(res.rows[0]);
+      return cachedSettings;
     }
   } catch (err) {
-    console.error('Failed to read database file, initializing default store:', err);
+    console.error('Failed to query garvi_settings from DB:', err);
   }
-
-  memoryStore = JSON.parse(JSON.stringify(initialData));
-  saveStore();
-  return memoryStore!;
+  return cachedSettings || defaultSettings;
 }
 
-function saveStore(): void {
-  if (!memoryStore) return;
-  try {
-    const filePath = getStoreFilePath();
-    fs.writeFileSync(filePath, JSON.stringify(memoryStore, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('Database save warning (using memory storage):', err);
-  }
+export function getCachedWorkshopSettings(): WorkshopSettings {
+  return cachedSettings || defaultSettings;
 }
 
-// Database Helper methods
-export function getWorkshopSettings(): WorkshopSettings {
-  const store = loadStore();
-  return store.workshop_settings || defaultSettings;
+export async function updateWorkshopSettings(settings: Partial<WorkshopSettings>): Promise<WorkshopSettings> {
+  const clientPool = getPool();
+  const current = await getWorkshopSettings();
+  const merged = { ...current, ...settings, id: 1 };
+
+  const query = `
+    INSERT INTO garvi_settings (
+      id, workshop_title, workshop_date, workshop_time, duration, price, max_seats,
+      whatsapp_group_link, preview_video_url, instructor_name, instructor_role,
+      contact_email, contact_phone, contact_address, meta_pixel_id,
+      razorpay_env, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret,
+      hero_headline, hero_subheadline, hero_badge, announcement_text, whatsapp_support_number
+    ) VALUES (
+      1, $1, $2, $3, $4, $5, $6,
+      $7, $8, $9, $10,
+      $11, $12, $13, $14,
+      $15, $16, $17, $18,
+      $19, $20, $21, $22, $23
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      workshop_title = EXCLUDED.workshop_title,
+      workshop_date = EXCLUDED.workshop_date,
+      workshop_time = EXCLUDED.workshop_time,
+      duration = EXCLUDED.duration,
+      price = EXCLUDED.price,
+      max_seats = EXCLUDED.max_seats,
+      whatsapp_group_link = EXCLUDED.whatsapp_group_link,
+      preview_video_url = EXCLUDED.preview_video_url,
+      instructor_name = EXCLUDED.instructor_name,
+      instructor_role = EXCLUDED.instructor_role,
+      contact_email = EXCLUDED.contact_email,
+      contact_phone = EXCLUDED.contact_phone,
+      contact_address = EXCLUDED.contact_address,
+      meta_pixel_id = EXCLUDED.meta_pixel_id,
+      razorpay_env = EXCLUDED.razorpay_env,
+      razorpay_key_id = EXCLUDED.razorpay_key_id,
+      razorpay_key_secret = EXCLUDED.razorpay_key_secret,
+      razorpay_webhook_secret = EXCLUDED.razorpay_webhook_secret,
+      hero_headline = EXCLUDED.hero_headline,
+      hero_subheadline = EXCLUDED.hero_subheadline,
+      hero_badge = EXCLUDED.hero_badge,
+      announcement_text = EXCLUDED.announcement_text,
+      whatsapp_support_number = EXCLUDED.whatsapp_support_number
+    RETURNING *;
+  `;
+
+  const values = [
+    merged.workshop_title,
+    merged.workshop_date,
+    merged.workshop_time,
+    merged.duration,
+    merged.price,
+    merged.max_seats,
+    merged.whatsapp_group_link,
+    merged.preview_video_url,
+    merged.instructor_name,
+    merged.instructor_role,
+    merged.contact_email,
+    merged.contact_phone,
+    merged.contact_address,
+    merged.meta_pixel_id || '',
+    merged.razorpay_env || 'test',
+    merged.razorpay_key_id || '',
+    merged.razorpay_key_secret || '',
+    merged.razorpay_webhook_secret || '',
+    merged.hero_headline || defaultSettings.hero_headline,
+    merged.hero_subheadline || defaultSettings.hero_subheadline,
+    merged.hero_badge || defaultSettings.hero_badge,
+    merged.announcement_text || defaultSettings.announcement_text,
+    merged.whatsapp_support_number || defaultSettings.whatsapp_support_number,
+  ];
+
+  const res = await clientPool.query(query, values);
+  cachedSettings = mapSettingsRow(res.rows[0]);
+  return cachedSettings;
 }
 
-export function updateWorkshopSettings(settings: Partial<WorkshopSettings>): WorkshopSettings {
-  const store = loadStore();
-  store.workshop_settings = {
-    ...store.workshop_settings,
-    ...settings,
-    id: 1,
-  };
-  saveStore();
-  return store.workshop_settings;
-}
+// ---------------- Registrations Operations ----------------
 
-export function createRegistration(data: {
+export async function createRegistration(data: {
   registration_id: string;
   full_name: string;
   mobile: string;
@@ -154,351 +222,427 @@ export function createRegistration(data: {
   utm_campaign?: string;
   utm_content?: string;
   utm_term?: string;
-}): Registration {
-  const store = loadStore();
-  const id = store.counters.registrationId++;
+}): Promise<Registration> {
+  const clientPool = getPool();
   const now = new Date().toISOString();
-
-  const newReg: Registration = {
-    id,
-    registration_id: data.registration_id,
-    full_name: data.full_name,
-    mobile: data.mobile,
-    email: data.email,
-    school_name: data.school_name,
-    city: data.city,
-    role: data.role,
-    amount: data.amount,
-    currency: 'INR',
-    status: 'pending_payment',
-    razorpay_order_id: data.razorpay_order_id,
-    razorpay_payment_id: undefined,
-    razorpay_signature: undefined,
-    utm_source: data.utm_source,
-    utm_medium: data.utm_medium,
-    utm_campaign: data.utm_campaign,
-    utm_content: data.utm_content,
-    utm_term: data.utm_term,
-    created_at: now,
-    updated_at: now,
-  };
-
-  store.registrations.unshift(newReg);
-  saveStore();
-  return newReg;
+  const query = `
+    INSERT INTO garvi_registrations (
+      registration_id, full_name, mobile, email, school_name, city, role,
+      amount, currency, status, razorpay_order_id,
+      utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+      created_at, updated_at
+    ) VALUES (
+      $1, $2, $3, $4, $5, $6, $7,
+      $8, $9, $10, $11,
+      $12, $13, $14, $15, $16,
+      $17, $18
+    )
+    ON CONFLICT (registration_id) DO UPDATE SET
+      full_name = EXCLUDED.full_name,
+      mobile = EXCLUDED.mobile,
+      email = EXCLUDED.email,
+      school_name = EXCLUDED.school_name,
+      city = EXCLUDED.city,
+      role = EXCLUDED.role,
+      amount = EXCLUDED.amount,
+      razorpay_order_id = EXCLUDED.razorpay_order_id,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *;
+  `;
+  const values = [
+    data.registration_id,
+    data.full_name,
+    data.mobile,
+    data.email,
+    data.school_name,
+    data.city,
+    data.role,
+    data.amount,
+    'INR',
+    'pending_payment',
+    data.razorpay_order_id || null,
+    data.utm_source || null,
+    data.utm_medium || null,
+    data.utm_campaign || null,
+    data.utm_content || null,
+    data.utm_term || null,
+    now,
+    now,
+  ];
+  const res = await clientPool.query(query, values);
+  return mapRegistrationRow(res.rows[0]);
 }
 
-export function getRegistrationById(registrationId: string): Registration | null {
-  const store = loadStore();
-  return store.registrations.find((r) => r.registration_id === registrationId) || null;
+export async function getRegistrationById(registrationId: string): Promise<Registration | null> {
+  const clientPool = getPool();
+  const res = await clientPool.query(
+    'SELECT * FROM garvi_registrations WHERE registration_id = $1 LIMIT 1',
+    [registrationId]
+  );
+  if (res.rows.length === 0) return null;
+  return mapRegistrationRow(res.rows[0]);
 }
 
-export function getRegistrationByOrderId(orderId: string): Registration | null {
-  const store = loadStore();
-  return store.registrations.find((r) => r.razorpay_order_id === orderId) || null;
+export async function getRegistrationByOrderId(orderId: string): Promise<Registration | null> {
+  const clientPool = getPool();
+  const res = await clientPool.query(
+    'SELECT * FROM garvi_registrations WHERE razorpay_order_id = $1 LIMIT 1',
+    [orderId]
+  );
+  if (res.rows.length === 0) return null;
+  return mapRegistrationRow(res.rows[0]);
 }
 
-export function updateRegistrationPaymentSuccess(
+export async function updateRegistrationPaymentSuccess(
   registrationId: string,
   razorpayPaymentId: string,
   razorpaySignature: string
-): Registration {
-  const store = loadStore();
-  const reg = store.registrations.find((r) => r.registration_id === registrationId);
-  if (reg) {
-    reg.status = 'registration_confirmed';
-    reg.razorpay_payment_id = razorpayPaymentId;
-    reg.razorpay_signature = razorpaySignature;
-    reg.updated_at = new Date().toISOString();
-    saveStore();
-    return reg;
+): Promise<Registration> {
+  const clientPool = getPool();
+  const now = new Date().toISOString();
+  const res = await clientPool.query(
+    `UPDATE garvi_registrations
+     SET status = 'registration_confirmed',
+         razorpay_payment_id = $1,
+         razorpay_signature = $2,
+         updated_at = $3
+     WHERE registration_id = $4
+     RETURNING *`,
+    [razorpayPaymentId, razorpaySignature, now, registrationId]
+  );
+  if (res.rows.length === 0) {
+    throw new Error(`Registration not found: ${registrationId}`);
   }
-  throw new Error(`Registration not found: ${registrationId}`);
+  return mapRegistrationRow(res.rows[0]);
 }
 
-export function updateRegistrationStatus(registrationId: string, status: string): void {
-  const store = loadStore();
-  const reg = store.registrations.find((r) => r.registration_id === registrationId);
-  if (reg) {
-    reg.status = status as any;
-    reg.updated_at = new Date().toISOString();
-    saveStore();
-  }
+export async function updateRegistrationStatus(registrationId: string, status: string): Promise<void> {
+  const clientPool = getPool();
+  const now = new Date().toISOString();
+  await clientPool.query(
+    `UPDATE garvi_registrations SET status = $1, updated_at = $2 WHERE registration_id = $3`,
+    [status, now, registrationId]
+  );
 }
 
-export function updateRegistration(
+export async function updateRegistration(
   registrationId: string,
   updates: Partial<Registration>
-): Registration | null {
-  const store = loadStore();
-  const reg = store.registrations.find((r) => r.registration_id === registrationId);
-  if (reg) {
-    Object.assign(reg, updates, { updated_at: new Date().toISOString() });
-    saveStore();
-    return reg;
+): Promise<Registration | null> {
+  const clientPool = getPool();
+  const allowedFields = [
+    'full_name',
+    'mobile',
+    'email',
+    'school_name',
+    'city',
+    'role',
+    'amount',
+    'status',
+    'razorpay_order_id',
+    'razorpay_payment_id',
+    'utm_source',
+    'utm_campaign',
+  ];
+  const setClauses: string[] = [];
+  const values: any[] = [];
+  let paramIdx = 1;
+
+  for (const [key, val] of Object.entries(updates)) {
+    if (allowedFields.includes(key) && val !== undefined) {
+      setClauses.push(`${key} = $${paramIdx++}`);
+      values.push(val);
+    }
   }
-  return null;
+
+  if (setClauses.length === 0) {
+    return getRegistrationById(registrationId);
+  }
+
+  setClauses.push(`updated_at = $${paramIdx++}`);
+  values.push(new Date().toISOString());
+
+  values.push(registrationId);
+  const query = `UPDATE garvi_registrations SET ${setClauses.join(', ')} WHERE registration_id = $${paramIdx} RETURNING *`;
+
+  const res = await clientPool.query(query, values);
+  if (res.rows.length === 0) return null;
+  return mapRegistrationRow(res.rows[0]);
 }
 
-export function deleteRegistration(registrationId: string): boolean {
-  const store = loadStore();
-  const index = store.registrations.findIndex((r) => r.registration_id === registrationId);
-  if (index !== -1) {
-    store.registrations.splice(index, 1);
-    saveStore();
-    return true;
-  }
-  return false;
+export async function deleteRegistration(registrationId: string): Promise<boolean> {
+  const clientPool = getPool();
+  const res = await clientPool.query(
+    'DELETE FROM garvi_registrations WHERE registration_id = $1',
+    [registrationId]
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
-export function logNotification(data: {
+export async function getAdminRegistrations(options: {
+  search?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+  isExport?: boolean;
+}): Promise<{ registrations: Registration[]; total: number }> {
+  const clientPool = getPool();
+  const { search = '', status = '', limit = 50, offset = 0, isExport = false } = options;
+
+  const whereClauses: string[] = ['1=1'];
+  const params: any[] = [];
+  let paramIdx = 1;
+
+  if (search && search.trim()) {
+    const pattern = `%${search.trim()}%`;
+    whereClauses.push(`(
+      registration_id ILIKE $${paramIdx} OR
+      full_name ILIKE $${paramIdx} OR
+      email ILIKE $${paramIdx} OR
+      mobile ILIKE $${paramIdx} OR
+      school_name ILIKE $${paramIdx} OR
+      city ILIKE $${paramIdx}
+    )`);
+    params.push(pattern);
+    paramIdx++;
+  }
+
+  if (status && status.trim()) {
+    whereClauses.push(`status = $${paramIdx}`);
+    params.push(status.trim());
+    paramIdx++;
+  }
+
+  const whereSql = whereClauses.join(' AND ');
+
+  // Get total count
+  const countRes = await clientPool.query(
+    `SELECT COUNT(*) as total FROM garvi_registrations WHERE ${whereSql}`,
+    params
+  );
+  const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+  // Get rows
+  let selectSql = `SELECT * FROM garvi_registrations WHERE ${whereSql} ORDER BY id DESC`;
+  const queryParams = [...params];
+
+  if (!isExport) {
+    selectSql += ` LIMIT $${paramIdx++} OFFSET $${paramIdx++}`;
+    queryParams.push(limit, offset);
+  }
+
+  const rowsRes = await clientPool.query(selectSql, queryParams);
+  const registrations = rowsRes.rows.map(mapRegistrationRow);
+
+  return { registrations, total };
+}
+
+export async function getConfirmedRegistrations(): Promise<Registration[]> {
+  const clientPool = getPool();
+  const res = await clientPool.query(
+    "SELECT * FROM garvi_registrations WHERE status IN ('registration_confirmed', 'paid') ORDER BY id DESC"
+  );
+  return res.rows.map(mapRegistrationRow);
+}
+
+// ---------------- Admin Analytics ----------------
+
+export async function getAdminAnalytics() {
+  const clientPool = getPool();
+
+  const [leadsRes, paidRes, pendingRes, failedRes, viewsRes, campaignsRes, notificationsRes] = await Promise.all([
+    clientPool.query('SELECT COUNT(*) as count FROM garvi_registrations'),
+    clientPool.query("SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as revenue FROM garvi_registrations WHERE status IN ('registration_confirmed', 'paid')"),
+    clientPool.query("SELECT COUNT(*) as count FROM garvi_registrations WHERE status = 'pending_payment'"),
+    clientPool.query("SELECT COUNT(*) as count FROM garvi_registrations WHERE status = 'payment_failed'"),
+    clientPool.query("SELECT COUNT(*) as count FROM garvi_analytics_events WHERE event_name = 'page_view'"),
+    clientPool.query(`
+      SELECT
+        COALESCE(utm_campaign, 'Direct / Organic') as utm_campaign,
+        COALESCE(utm_source, 'None') as utm_source,
+        COUNT(*) as leads,
+        SUM(CASE WHEN status IN ('registration_confirmed', 'paid') THEN 1 ELSE 0 END) as conversions,
+        SUM(CASE WHEN status IN ('registration_confirmed', 'paid') THEN amount ELSE 0 END) as revenue
+      FROM garvi_registrations
+      GROUP BY utm_campaign, utm_source
+      ORDER BY conversions DESC, leads DESC
+      LIMIT 10
+    `),
+    clientPool.query('SELECT * FROM garvi_notifications_log ORDER BY id DESC LIMIT 10')
+  ]);
+
+  const totalLeads = parseInt(leadsRes.rows[0]?.count || '0', 10);
+  const verifiedCount = parseInt(paidRes.rows[0]?.count || '0', 10);
+  const totalRevenue = parseInt(paidRes.rows[0]?.revenue || '0', 10);
+  const paymentPending = parseInt(pendingRes.rows[0]?.count || '0', 10);
+  const paymentFailed = parseInt(failedRes.rows[0]?.count || '0', 10);
+  const pageViews = parseInt(viewsRes.rows[0]?.count || '0', 10);
+
+  const totalVisitors = Math.max(pageViews, totalLeads > 0 ? totalLeads * 3 : 1);
+  const conversionRate = totalLeads > 0 ? ((verifiedCount / totalLeads) * 100).toFixed(1) : '0.0';
+
+  return {
+    summary: {
+      totalVisitors,
+      totalLeads,
+      paymentPending,
+      paymentFailed,
+      verifiedRegistrations: verifiedCount,
+      totalRevenue,
+      conversionRate: `${conversionRate}%`,
+    },
+    campaigns: campaignsRes.rows.map((r) => ({
+      utm_campaign: r.utm_campaign,
+      utm_source: r.utm_source,
+      leads: parseInt(r.leads || '0', 10),
+      conversions: parseInt(r.conversions || '0', 10),
+      revenue: parseInt(r.revenue || '0', 10),
+    })),
+    recentNotifications: notificationsRes.rows.map((r) => ({
+      id: r.id,
+      registration_id: r.registration_id,
+      channel: r.channel,
+      template_name: r.template_name,
+      recipient: r.recipient,
+      status: r.status,
+      error_message: r.error_message,
+      sent_at: r.sent_at ? new Date(r.sent_at).toISOString() : new Date().toISOString(),
+    })),
+  };
+}
+
+// ---------------- Contact Messages Operations ----------------
+
+export async function createContactMessage(data: {
+  name: string;
+  mobile: string;
+  email: string;
+  school: string;
+  message: string;
+}): Promise<ContactMessage> {
+  const clientPool = getPool();
+  const res = await clientPool.query(
+    `INSERT INTO garvi_contact_messages (name, mobile, email, school, message, status, created_at)
+     VALUES ($1, $2, $3, $4, $5, 'new', CURRENT_TIMESTAMP)
+     RETURNING *`,
+    [data.name, data.mobile, data.email, data.school, data.message]
+  );
+  const r = res.rows[0];
+  return {
+    id: r.id,
+    name: r.name,
+    mobile: r.mobile,
+    email: r.email,
+    school: r.school,
+    message: r.message,
+    status: r.status,
+    created_at: new Date(r.created_at).toISOString(),
+  };
+}
+
+export async function getContactMessages(): Promise<ContactMessage[]> {
+  const clientPool = getPool();
+  const res = await clientPool.query('SELECT * FROM garvi_contact_messages ORDER BY id DESC');
+  return res.rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    mobile: r.mobile,
+    email: r.email,
+    school: r.school,
+    message: r.message,
+    status: r.status,
+    created_at: new Date(r.created_at).toISOString(),
+  }));
+}
+
+export async function updateContactMessageStatus(id: number, status: 'new' | 'contacted' | 'resolved'): Promise<boolean> {
+  const clientPool = getPool();
+  const res = await clientPool.query(
+    'UPDATE garvi_contact_messages SET status = $1 WHERE id = $2',
+    [status, id]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function deleteContactMessage(id: number): Promise<boolean> {
+  const clientPool = getPool();
+  const res = await clientPool.query('DELETE FROM garvi_contact_messages WHERE id = $1', [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+// ---------------- Notifications & Analytics Logging ----------------
+
+export async function logNotification(data: {
   registration_id: string;
   channel: 'email' | 'whatsapp';
   template_name: string;
   recipient: string;
   status: 'sent' | 'pending' | 'failed';
   error_message?: string;
-}) {
-  const store = loadStore();
-  const id = store.counters.notificationId++;
-  const entry: NotificationLog = {
-    id,
-    registration_id: data.registration_id,
-    channel: data.channel,
-    template_name: data.template_name,
-    recipient: data.recipient,
-    status: data.status,
-    error_message: data.error_message,
-    sent_at: new Date().toISOString(),
-  };
-  store.notifications_log.unshift(entry);
-  saveStore();
+}): Promise<void> {
+  try {
+    const clientPool = getPool();
+    await clientPool.query(
+      `INSERT INTO garvi_notifications_log (registration_id, channel, template_name, recipient, status, error_message, sent_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
+      [data.registration_id, data.channel, data.template_name, data.recipient, data.status, data.error_message || null]
+    );
+  } catch (err) {
+    console.error('Failed to log notification to database:', err);
+  }
 }
 
-export function getNotificationLogs(limit: number = 50): NotificationLog[] {
-  const store = loadStore();
-  return store.notifications_log.slice(0, limit);
+export async function getNotificationLogs(limit: number = 50): Promise<NotificationLog[]> {
+  const clientPool = getPool();
+  const res = await clientPool.query('SELECT * FROM garvi_notifications_log ORDER BY id DESC LIMIT $1', [limit]);
+  return res.rows.map((r) => ({
+    id: r.id,
+    registration_id: r.registration_id,
+    channel: r.channel,
+    template_name: r.template_name,
+    recipient: r.recipient,
+    status: r.status,
+    error_message: r.error_message,
+    sent_at: new Date(r.sent_at).toISOString(),
+  }));
 }
 
-export function recordAnalyticsEvent(
+export async function hasNotificationBeenSent(registrationId: string, templateType: string): Promise<boolean> {
+  const clientPool = getPool();
+  const res = await clientPool.query(
+    "SELECT id FROM garvi_notifications_log WHERE registration_id = $1 AND template_name LIKE $2 AND status = 'sent' LIMIT 1",
+    [registrationId, `%${templateType}%`]
+  );
+  return res.rows.length > 0;
+}
+
+export async function recordAnalyticsEvent(
   eventName: string,
   registrationId?: string,
   utmSource?: string,
   utmCampaign?: string
-) {
-  const store = loadStore();
-  const id = store.counters.analyticsId++;
-  const event: AnalyticsEvent = {
-    id,
-    event_name: eventName,
-    registration_id: registrationId,
-    utm_source: utmSource,
-    utm_campaign: utmCampaign,
-    created_at: new Date().toISOString(),
-  };
-  store.analytics_events.unshift(event);
-  saveStore();
-}
-
-// Contact messages handlers
-export function createContactMessage(data: {
-  name: string;
-  mobile: string;
-  email: string;
-  school: string;
-  message: string;
-}): ContactMessage {
-  const store = loadStore();
-  const id = store.counters.contactId++;
-  const entry: ContactMessage = {
-    id,
-    name: data.name,
-    mobile: data.mobile,
-    email: data.email,
-    school: data.school,
-    message: data.message,
-    status: 'new',
-    created_at: new Date().toISOString(),
-  };
-  store.contact_messages.unshift(entry);
-  saveStore();
-  return entry;
-}
-
-export function getContactMessages(): ContactMessage[] {
-  const store = loadStore();
-  return store.contact_messages || [];
-}
-
-export function updateContactMessageStatus(id: number, status: 'new' | 'contacted' | 'resolved'): boolean {
-  const store = loadStore();
-  const msg = store.contact_messages.find((m) => m.id === id);
-  if (msg) {
-    msg.status = status;
-    saveStore();
-    return true;
+): Promise<void> {
+  try {
+    const clientPool = getPool();
+    await clientPool.query(
+      `INSERT INTO garvi_analytics_events (event_name, registration_id, utm_source, utm_campaign, created_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [eventName, registrationId || null, utmSource || null, utmCampaign || null]
+    );
+  } catch (err) {
+    console.error('Failed to record analytics event to database:', err);
   }
-  return false;
 }
 
-export function deleteContactMessage(id: number): boolean {
-  const store = loadStore();
-  const idx = store.contact_messages.findIndex((m) => m.id === id);
-  if (idx !== -1) {
-    store.contact_messages.splice(idx, 1);
-    saveStore();
-    return true;
-  }
-  return false;
-}
-
-// SQL compatibility layer for existing query-based API routes
+// Backward compatibility layer
 export const db = {
-  prepare(sql: string) {
+  prepare() {
     return {
-      get(...params: any[]): any {
-        const store = loadStore();
-        const normalized = sql.trim();
-
-        // 1. SELECT COUNT(*) as total FROM registrations
-        if (normalized.includes('SELECT COUNT(*) as total FROM registrations') || (normalized.includes('COUNT(*)') && normalized.includes('registrations') && !normalized.includes('WHERE status'))) {
-          let list = [...store.registrations];
-          if (params.length > 0) {
-            const searchParam = params[0]?.replace?.(/%/g, '').toLowerCase() || '';
-            const statusParam = params[params.length - 1];
-            if (searchParam) {
-              list = list.filter((r) =>
-                r.registration_id.toLowerCase().includes(searchParam) ||
-                r.full_name.toLowerCase().includes(searchParam) ||
-                r.email.toLowerCase().includes(searchParam) ||
-                r.mobile.includes(searchParam) ||
-                r.school_name.toLowerCase().includes(searchParam) ||
-                r.city.toLowerCase().includes(searchParam)
-              );
-            }
-            if (normalized.includes('status = ?') && statusParam && statusParam !== searchParam) {
-              list = list.filter((r) => r.status === statusParam);
-            }
-          }
-          return { total: list.length, count: list.length };
-        }
-
-        // 2. Verified Paid analytics query
-        if (normalized.includes("status IN ('registration_confirmed', 'paid')")) {
-          const paid = store.registrations.filter((r) => r.status === 'registration_confirmed' || r.status === 'paid');
-          const revenue = paid.reduce((sum, r) => sum + (r.amount || 0), 0);
-          return { count: paid.length, revenue };
-        }
-
-        // 3. Pending payment
-        if (normalized.includes("status = 'pending_payment'")) {
-          const pending = store.registrations.filter((r) => r.status === 'pending_payment');
-          return { count: pending.length };
-        }
-
-        // 4. Payment failed
-        if (normalized.includes("status = 'payment_failed'")) {
-          const failed = store.registrations.filter((r) => r.status === 'payment_failed');
-          return { count: failed.length };
-        }
-
-        // 5. Page views
-        if (normalized.includes("analytics_events WHERE event_name = 'page_view'")) {
-          const views = store.analytics_events.filter((e) => e.event_name === 'page_view');
-          return { count: views.length };
-        }
-
-        // 6. Notifications sent check in reminder cron
-        if (normalized.includes('FROM notifications_log') && normalized.includes('registration_id = ?')) {
-          const [regId, templateLike] = params;
-          const cleanLike = (templateLike || '').replace(/%/g, '').toLowerCase();
-          const match = store.notifications_log.find(
-            (n) => n.registration_id === regId && n.template_name.toLowerCase().includes(cleanLike) && n.status === 'sent'
-          );
-          return match ? { id: match.id } : null;
-        }
-
-        return null;
-      },
-
-      all(...params: any[]): any[] {
-        const store = loadStore();
-        const normalized = sql.trim();
-
-        // 1. Admin Registrations table query with pagination and search
-        if (normalized.includes('FROM registrations WHERE 1=1')) {
-          let list = [...store.registrations];
-          const searchPattern = params.find((p) => typeof p === 'string' && p.startsWith('%') && p.endsWith('%'));
-          if (searchPattern) {
-            const clean = searchPattern.replace(/%/g, '').toLowerCase();
-            list = list.filter((r) =>
-              r.registration_id.toLowerCase().includes(clean) ||
-              r.full_name.toLowerCase().includes(clean) ||
-              r.email.toLowerCase().includes(clean) ||
-              r.mobile.includes(clean) ||
-              r.school_name.toLowerCase().includes(clean) ||
-              r.city.toLowerCase().includes(clean)
-            );
-          }
-          if (normalized.includes('status = ?')) {
-            const statusVal = params.find((p) => typeof p === 'string' && !p.startsWith('%'));
-            if (statusVal) {
-              list = list.filter((r) => r.status === statusVal);
-            }
-          }
-
-          const numericParams = params.filter((p) => typeof p === 'number');
-          if (numericParams.length >= 2) {
-            const [limit, offset] = numericParams;
-            return list.slice(offset, offset + limit);
-          }
-          return list;
-        }
-
-        // 2. Confirmed participants list for reminders
-        if (normalized.includes("FROM registrations WHERE status IN ('registration_confirmed', 'paid')")) {
-          return store.registrations.filter((r) => r.status === 'registration_confirmed' || r.status === 'paid');
-        }
-
-        // 3. UTM Campaign analytics aggregation
-        if (normalized.includes('GROUP BY utm_campaign, utm_source')) {
-          const groups: Record<string, { utm_campaign: string; utm_source: string; leads: number; conversions: number; revenue: number }> = {};
-          for (const reg of store.registrations) {
-            const campaign = reg.utm_campaign || 'Direct / Organic';
-            const source = reg.utm_source || 'None';
-            const key = `${campaign}__${source}`;
-            if (!groups[key]) {
-              groups[key] = { utm_campaign: campaign, utm_source: source, leads: 0, conversions: 0, revenue: 0 };
-            }
-            groups[key].leads++;
-            if (reg.status === 'registration_confirmed' || reg.status === 'paid') {
-              groups[key].conversions++;
-              groups[key].revenue += reg.amount || 0;
-            }
-          }
-          return Object.values(groups)
-            .sort((a, b) => b.conversions - a.conversions || b.leads - a.leads)
-            .slice(0, 10);
-        }
-
-        // 4. Notifications log list
-        if (normalized.includes('FROM notifications_log')) {
-          const limit = params.find((p) => typeof p === 'number') || 10;
-          return store.notifications_log.slice(0, limit);
-        }
-
-        return [];
-      },
-
-      run(..._params: any[]) {
-        return { changes: 1, lastInsertRowid: 1 };
-      },
+      get() { return null; },
+      all() { return []; },
+      run() { return { changes: 1, lastInsertRowid: 1 }; },
     };
   },
-  exec(_sql: string) {
-    return true;
-  },
-  pragma(_pragma: string) {
-    return true;
-  },
+  exec() { return true; },
+  pragma() { return true; },
 };

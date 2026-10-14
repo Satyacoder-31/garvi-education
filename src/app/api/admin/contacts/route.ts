@@ -3,7 +3,7 @@ import { getContactMessages, updateContactMessageStatus, deleteContactMessage } 
 
 export async function GET() {
   try {
-    const messages = getContactMessages();
+    const messages = await getContactMessages();
     return NextResponse.json({ messages });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -17,7 +17,7 @@ export async function PUT(req: NextRequest) {
     if (!id || !status) {
       return NextResponse.json({ error: 'id and status required.' }, { status: 400 });
     }
-    const success = updateContactMessageStatus(id, status);
+    const success = await updateContactMessageStatus(id, status);
     return NextResponse.json({ success });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -31,7 +31,7 @@ export async function DELETE(req: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'Valid id required.' }, { status: 400 });
     }
-    const success = deleteContactMessage(id);
+    const success = await deleteContactMessage(id);
     return NextResponse.json({ success });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

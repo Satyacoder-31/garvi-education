@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Please specify your city or district.' }, { status: 400 });
     }
 
-    const settings = getWorkshopSettings();
+    const settings = await getWorkshopSettings();
     const amount = settings.price || 199;
     const year = new Date().getFullYear();
     const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Save initial registration record as pending_payment
-    const registration = createRegistration({
+    const registration = await createRegistration({
       registration_id: registrationId,
       full_name: fullName.trim(),
       mobile: normalizeIndianPhoneNumber(mobile),
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      keyId: getRazorpayKeyId(),
+      keyId: order.keyId || (await getRazorpayKeyId()),
       isSandbox: order.isSandbox,
       participant: {
         name: registration.full_name,

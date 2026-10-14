@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getWorkshopSettings } from '@/lib/db';
-import { getRazorpayKeyId, getRazorpayCredentials } from '@/lib/razorpay';
+import { getRazorpayCredentials } from '@/lib/razorpay';
 
 export async function GET() {
   try {
-    const settings = getWorkshopSettings();
-    const creds = getRazorpayCredentials();
+    const settings = await getWorkshopSettings();
+    const creds = await getRazorpayCredentials(settings);
 
     // Only expose public safe properties (NEVER secrets)
     const publicSettings = {
@@ -29,7 +29,7 @@ export async function GET() {
       announcement_text: settings.announcement_text || 'Online School Management Workshop',
       whatsapp_support_number: settings.whatsapp_support_number || '9425100000',
       razorpay_env: creds.env,
-      razorpay_key_id: getRazorpayKeyId(),
+      razorpay_key_id: creds.key_id || 'rzp_test_placeholder',
       is_payment_live: creds.isConfigured && creds.env === 'production',
     };
 

@@ -12,13 +12,13 @@ export async function GET(
       return NextResponse.json({ error: 'Registration ID required.' }, { status: 400 });
     }
 
-    const registration = getRegistrationById(id);
+    const registration = await getRegistrationById(id);
 
     if (!registration) {
       return NextResponse.json({ error: 'Registration not found.' }, { status: 404 });
     }
 
-    const settings = getWorkshopSettings();
+    const settings = await getWorkshopSettings();
 
     return NextResponse.json({
       registration: {

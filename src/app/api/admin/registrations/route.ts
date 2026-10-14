@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, createRegistration, updateRegistration, deleteRegistration, getRegistrationById } from '@/lib/db';
-import { Registration } from '@/lib/types';
+import {
+  getAdminRegistrations,
+  createRegistration,
+  updateRegistration,
+  deleteRegistration,
+  getRegistrationById,
+} from '@/lib/db';
 import { normalizeIndianPhoneNumber } from '@/lib/aisensy';
 
 export async function GET(req: NextRequest) {
@@ -12,35 +17,13 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
 
-    let query = 'SELECT * FROM registrations WHERE 1=1';
-    const params: any[] = [];
-
-    if (search) {
-      query += ` AND (
-        registration_id LIKE ? OR
-        full_name LIKE ? OR
-        email LIKE ? OR
-        mobile LIKE ? OR
-        school_name LIKE ? OR
-        city LIKE ?
-      )`;
-      const pattern = `%${search}%`;
-      params.push(pattern, pattern, pattern, pattern, pattern, pattern);
-    }
-
-    if (status) {
-      query += ' AND status = ?';
-      params.push(status);
-    }
-
-    query += ' ORDER BY id DESC';
-
-    if (!isExport) {
-      query += ' LIMIT ? OFFSET ?';
-      params.push(limit, offset);
-    }
-
-    const rows = db.prepare(query).all(...params) as Registration[];
+    const { registrations, total } = await getAdminRegistrations({
+      search,
+      status,
+      limit,
+      offset,
+      isExport,
+    });
 
     // CSV Export support
     if (isExport) {
@@ -63,7 +46,7 @@ export async function GET(req: NextRequest) {
 
       const csvRows = [headers.join(',')];
 
-      rows.forEach((r) => {
+      registrations.forEach((r) => {
         const line = [
           `"${r.registration_id}"`,
           `"${(r.full_name || '').replace(/"/g, '""')}"`,
@@ -92,31 +75,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Get total count for pagination
-    let countQuery = 'SELECT COUNT(*) as total FROM registrations WHERE 1=1';
-    const countParams: any[] = [];
-    if (search) {
-      countQuery += ` AND (
-        registration_id LIKE ? OR
-        full_name LIKE ? OR
-        email LIKE ? OR
-        mobile LIKE ? OR
-        school_name LIKE ? OR
-        city LIKE ?
-      )`;
-      const pattern = `%${search}%`;
-      countParams.push(pattern, pattern, pattern, pattern, pattern, pattern);
-    }
-    if (status) {
-      countQuery += ' AND status = ?';
-      countParams.push(status);
-    }
-
-    const totalCount = (db.prepare(countQuery).get(...countParams) as { total: number })?.total || 0;
-
     return NextResponse.json({
-      registrations: rows,
-      total: totalCount,
+      registrations,
+      total,
       limit,
       offset,
     });
@@ -142,7 +103,7 @@ export async function POST(req: NextRequest) {
     const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
     const registrationId = `GARVI-${year}-${randomSuffix}`;
 
-    const reg = createRegistration({
+    await createRegistration({
       registration_id: registrationId,
       full_name: fullName.trim(),
       mobile: normalizeIndianPhoneNumber(mobile),
@@ -155,12 +116,14 @@ export async function POST(req: NextRequest) {
     });
 
     if (status && status !== 'pending_payment') {
-      updateRegistration(registrationId, { status });
+      await updateRegistration(registrationId, { status });
     }
+
+    const saved = await getRegistrationById(registrationId);
 
     return NextResponse.json({
       success: true,
-      registration: getRegistrationById(registrationId),
+      registration: saved,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -180,7 +143,7 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const updated = updateRegistration(registrationId, updates);
+    const updated = await updateRegistration(registrationId, updates);
     if (!updated) {
       return NextResponse.json({ error: 'Registration not found.' }, { status: 404 });
     }
@@ -201,7 +164,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'registrationId is required.' }, { status: 400 });
     }
 
-    const deleted = deleteRegistration(registrationId);
+    const deleted = await deleteRegistration(registrationId);
     if (!deleted) {
       return NextResponse.json({ error: 'Registration not found or could not be deleted.' }, { status: 404 });
     }

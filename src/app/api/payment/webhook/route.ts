@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
     // If webhook secret is configured, enforce strict signature verification
     if (WEBHOOK_SECRET) {
-      if (!signature || !verifyWebhookSignature(rawBody, signature, WEBHOOK_SECRET)) {
+      if (!signature || !(await verifyWebhookSignature(rawBody, signature, WEBHOOK_SECRET))) {
         return NextResponse.json({ error: 'Invalid webhook signature.' }, { status: 400 });
       }
     }
@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
     }
 
     let registration = notesRegistrationId
-      ? getRegistrationById(notesRegistrationId)
-      : (orderId ? getRegistrationByOrderId(orderId) : null);
+      ? await getRegistrationById(notesRegistrationId)
+      : (orderId ? await getRegistrationByOrderId(orderId) : null);
 
     if (!registration) {
       return NextResponse.json({ message: 'Registration record not matched in database.' }, { status: 200 });
@@ -50,13 +50,13 @@ export async function POST(req: NextRequest) {
     if (event === 'payment.captured' || event === 'order.paid') {
       // Idempotency check: don't re-trigger if already confirmed
       if (registration.status !== 'registration_confirmed' && registration.status !== 'paid') {
-        const confirmedRegistration = updateRegistrationPaymentSuccess(
+        const confirmedRegistration = await updateRegistrationPaymentSuccess(
           registration.registration_id,
           paymentId || 'webhook_captured',
           signature || 'webhook_verified'
         );
 
-        const settings = getWorkshopSettings();
+        const settings = await getWorkshopSettings();
 
         // Trigger WhatsApp
         sendWhatsAppConfirmation({
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       }
     } else if (event === 'payment.failed') {
       if (registration.status !== 'registration_confirmed') {
-        updateRegistrationStatus(registration.registration_id, 'payment_failed');
+        await updateRegistrationStatus(registration.registration_id, 'payment_failed');
         recordAnalyticsEvent('webhook_payment_failed', registration.registration_id);
       }
     }

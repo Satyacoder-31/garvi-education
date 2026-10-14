@@ -11,12 +11,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'registrationId is required.' }, { status: 400 });
     }
 
-    const reg = getRegistrationById(registrationId);
+    const reg = await getRegistrationById(registrationId);
     if (!reg) {
       return NextResponse.json({ error: 'Registration not found.' }, { status: 404 });
     }
 
-    const settings = getWorkshopSettings();
+    const settings = await getWorkshopSettings();
 
     if (channel === 'whatsapp' || !channel) {
       await sendWhatsAppConfirmation({

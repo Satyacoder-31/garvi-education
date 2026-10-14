@@ -1,6 +1,7 @@
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
-import { getWorkshopSettings } from './db';
+import { getWorkshopSettings, getCachedWorkshopSettings } from './db';
+import { WorkshopSettings } from './types';
 
 export interface RazorpayCredentials {
   key_id: string;
@@ -10,8 +11,8 @@ export interface RazorpayCredentials {
   isConfigured: boolean;
 }
 
-export function getRazorpayCredentials(): RazorpayCredentials {
-  const settings = getWorkshopSettings();
+export async function getRazorpayCredentials(providedSettings?: WorkshopSettings): Promise<RazorpayCredentials> {
+  const settings = providedSettings || (await getWorkshopSettings());
   const key_id =
     (settings.razorpay_key_id && settings.razorpay_key_id.trim()) ||
     process.env.RAZORPAY_KEY_ID ||
@@ -25,7 +26,35 @@ export function getRazorpayCredentials(): RazorpayCredentials {
     (settings.razorpay_webhook_secret && settings.razorpay_webhook_secret.trim()) ||
     process.env.RAZORPAY_WEBHOOK_SECRET ||
     '';
-  const env = settings.razorpay_env || (key_id.startsWith('rzp_live') ? 'production' : 'test');
+  const env = (settings.razorpay_env as 'test' | 'production') || (key_id.startsWith('rzp_live') ? 'production' : 'test');
+
+  const isConfigured = Boolean(key_id && key_secret && key_id !== 'rzp_test_placeholder');
+
+  return {
+    key_id,
+    key_secret,
+    webhook_secret,
+    env,
+    isConfigured,
+  };
+}
+
+export function getSyncRazorpayCredentials(providedSettings?: WorkshopSettings): RazorpayCredentials {
+  const settings = providedSettings || getCachedWorkshopSettings();
+  const key_id =
+    (settings.razorpay_key_id && settings.razorpay_key_id.trim()) ||
+    process.env.RAZORPAY_KEY_ID ||
+    process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
+    '';
+  const key_secret =
+    (settings.razorpay_key_secret && settings.razorpay_key_secret.trim()) ||
+    process.env.RAZORPAY_KEY_SECRET ||
+    '';
+  const webhook_secret =
+    (settings.razorpay_webhook_secret && settings.razorpay_webhook_secret.trim()) ||
+    process.env.RAZORPAY_WEBHOOK_SECRET ||
+    '';
+  const env = (settings.razorpay_env as 'test' | 'production') || (key_id.startsWith('rzp_live') ? 'production' : 'test');
 
   const isConfigured = Boolean(key_id && key_secret && key_id !== 'rzp_test_placeholder');
 
@@ -51,7 +80,7 @@ export async function createRazorpayOrder({
   receipt,
   notes = {},
 }: CreateOrderParams) {
-  const creds = getRazorpayCredentials();
+  const creds = await getRazorpayCredentials();
 
   // If real or test Razorpay keys are configured in admin panel or env, use the official SDK
   if (creds.isConfigured) {
@@ -79,8 +108,7 @@ export async function createRazorpayOrder({
         env: creds.env,
       };
     } catch (error: any) {
-      console.error('Razorpay API order creation failed, falling back to simulator:', error);
-      // If Razorpay API rejects (e.g. invalid test keys provided by user), gracefully inform
+      console.error('Razorpay API order creation failed:', error);
       throw new Error(`Razorpay gateway error: ${error.message || 'Failed to create order with Razorpay.'}`);
     }
   }
@@ -93,30 +121,31 @@ export async function createRazorpayOrder({
     currency,
     receipt,
     isSandbox: true,
-    keyId: 'rzp_test_placeholder',
+    keyId: creds.key_id || 'rzp_test_placeholder',
     env: 'test' as const,
   };
 }
 
-export function verifyRazorpaySignature(
+export async function verifyRazorpaySignature(
   orderId: string,
   paymentId: string,
-  signature: string
-): boolean {
+  signature: string,
+  customSecret?: string
+): Promise<boolean> {
   // Handle sandbox simulated payments
   if (orderId.startsWith('order_test_')) {
     return signature === `simulated_sig_${orderId}`;
   }
 
-  const creds = getRazorpayCredentials();
+  const secret = customSecret || (await getRazorpayCredentials()).key_secret;
 
-  if (!creds.key_secret) {
+  if (!secret) {
     return false;
   }
 
   try {
     const generatedSignature = crypto
-      .createHmac('sha256', creds.key_secret)
+      .createHmac('sha256', secret)
       .update(`${orderId}|${paymentId}`)
       .digest('hex');
 
@@ -130,12 +159,12 @@ export function verifyRazorpaySignature(
   }
 }
 
-export function verifyWebhookSignature(
+export async function verifyWebhookSignature(
   rawBody: string,
   signature: string,
   providedSecret?: string
-): boolean {
-  const creds = getRazorpayCredentials();
+): Promise<boolean> {
+  const creds = await getRazorpayCredentials();
   const secret = providedSecret || creds.webhook_secret || creds.key_secret;
   if (!secret || !signature) return false;
 
@@ -154,7 +183,7 @@ export function verifyWebhookSignature(
   }
 }
 
-export function getRazorpayKeyId(): string {
-  const creds = getRazorpayCredentials();
+export async function getRazorpayKeyId(): Promise<string> {
+  const creds = await getRazorpayCredentials();
   return creds.key_id || 'rzp_test_placeholder';
 }

@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Please enter a valid email address.' }, { status: 400 });
     }
 
-    const entry = createContactMessage({
+    const entry = await createContactMessage({
       name: name.trim(),
       mobile: mobile.trim(),
       email: email.trim().toLowerCase(),
