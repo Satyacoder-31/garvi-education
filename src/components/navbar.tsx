@@ -23,11 +23,12 @@ export function Navbar({ onRegisterClick, price = 199 }: NavbarProps) {
   }, []);
 
   const navLinks = [
-    { label: 'Overview', href: '#overview' },
-    { label: "What You'll Learn", href: '#outcomes' },
-    { label: 'Agenda', href: '#agenda' },
-    { label: 'Who Should Attend', href: '#audience' },
-    { label: 'FAQs', href: '#faqs' },
+    { label: 'Overview', href: '/#overview' },
+    { label: "What You'll Learn", href: '/#outcomes' },
+    { label: 'Agenda', href: '/#agenda' },
+    { label: 'Who Should Attend', href: '/#audience' },
+    { label: 'FAQs', href: '/#faqs' },
+    { label: 'Contact', href: '/contact' },
   ];
 
   return (
