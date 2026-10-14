@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --brand-navy: #0A192F;
+    --brand-navy-dark: #07101E;
+    --brand-blue: #1D4ED8;
+    --brand-blue-light: #2563EB;
+    --brand-cyan: #06B6D4;
+    --brand-cyan-light: #E0F2FE;
+    --brand-bg: #FFFFFF;
+    --brand-bg-warm: #F8FAFC;
+    --brand-border: #E2E8F0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  body {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-jakarta), system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Custom subtle animations */
+@keyframes pulseSubtle {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.02);
+  }
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 2-Second Vibration / Attention Pulse for Register Buttons */
+@keyframes vibrateEvery2s {
+  0%, 80%, 100% {
+    transform: scale(1) translate(0, 0) rotate(0deg);
+  }
+  82% {
+    transform: scale(1.04) translate(-2px, -1px) rotate(-1deg);
+    box-shadow: 0 10px 25px -4px rgba(37, 99, 235, 0.6), 0 0 15px rgba(37, 99, 235, 0.5);
+  }
+  85% {
+    transform: scale(1.04) translate(2px, 1px) rotate(1deg);
+    box-shadow: 0 10px 25px -4px rgba(37, 99, 235, 0.7), 0 0 20px rgba(37, 99, 235, 0.6);
+  }
+  88% {
+    transform: scale(1.04) translate(-2px, 1px) rotate(-1deg);
+    box-shadow: 0 10px 25px -4px rgba(37, 99, 235, 0.6), 0 0 15px rgba(37, 99, 235, 0.5);
+  }
+  91% {
+    transform: scale(1.04) translate(2px, -1px) rotate(1deg);
+    box-shadow: 0 10px 25px -4px rgba(37, 99, 235, 0.7), 0 0 20px rgba(37, 99, 235, 0.6);
+  }
+  94% {
+    transform: scale(1.02) translate(0, 0) rotate(0deg);
+  }
+}
+
+.animate-vibrate-2s {
+  animation: vibrateEvery2s 2s infinite ease-in-out;
+}
+
+/* Scroll Reveal Animations — Directional Left, Right, Up, and Scale */
+.scroll-reveal,
+.scroll-reveal-left,
+.scroll-reveal-right,
+.scroll-reveal-up,
+.scroll-reveal-scale {
+  opacity: 0;
+  transition: opacity 0.85s cubic-bezier(0.16, 1, 0.3, 1), transform 0.85s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.scroll-reveal,
+.scroll-reveal-up {
+  transform: translateY(32px);
+}
+
+.scroll-reveal-left {
+  transform: translateX(-48px);
+}
+
+.scroll-reveal-right {
+  transform: translateX(48px);
+}
+
+.scroll-reveal-scale {
+  transform: scale(0.93) translateY(20px);
+}
+
+.scroll-reveal.revealed,
+.scroll-reveal-left.revealed,
+.scroll-reveal-right.revealed,
+.scroll-reveal-up.revealed,
+.scroll-reveal-scale.revealed {
+  opacity: 1;
+  transform: translate(0, 0) scale(1);
+}
+
+.stagger-1 { transition-delay: 80ms; }
+.stagger-2 { transition-delay: 160ms; }
+.stagger-3 { transition-delay: 240ms; }
+.stagger-4 { transition-delay: 320ms; }
+
+/* Subtle floating drift for hero cards */
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float {
+  animation: floatSlow 5s ease-in-out infinite;
+}
+
+.animate-float-delayed {
+  animation: floatSlow 5s ease-in-out 2.5s infinite;
+}
+
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.glass-panel-dark {
+  background: rgba(10, 25, 47, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(30, 58, 138, 0.3);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}

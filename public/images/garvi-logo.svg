@@ -1,0 +1,23 @@
+<svg width="240" height="64" viewBox="0 0 240 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g id="garvi-logo">
+    <!-- Emblem Shield -->
+    <path d="M28 6L7 14V28C7 41.5 16 53.5 28 56C40 53.5 49 41.5 49 28V14L28 6Z" fill="url(#emblem_gradient)" stroke="#93C5FD" stroke-width="2" stroke-linejoin="round"/>
+    <!-- Open Book -->
+    <path d="M16 33C19.5 31.8 24.5 32.4 28 35.5C31.5 32.4 36.5 31.8 40 33V44C36.5 42.8 31.5 43.4 28 46.5C24.5 43.4 19.5 42.8 16 44V33Z" fill="#FFFFFF"/>
+    <path d="M28 35.5V46.5" stroke="#1D4ED8" stroke-width="2" stroke-linecap="round"/>
+    <!-- Rising Rays -->
+    <path d="M28 17V23M20.5 19.5L23.5 24.5M35.5 19.5L32.5 24.5" stroke="#FDE047" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M28 21L30.5 25.5H25.5L28 21Z" fill="#FACC15"/>
+    
+    <!-- Text: GARVI EDUCATION -->
+    <text x="62" y="34" fill="#0A192F" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="22" letter-spacing="-0.5">GARVI EDUCATION</text>
+    <text x="63" y="49" fill="#64748B" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="10.5" letter-spacing="2">REWA, MADHYA PRADESH</text>
+  </g>
+  <defs>
+    <linearGradient id="emblem_gradient" x1="7" y1="6" x2="49" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stopColor="#0F172A"/>
+      <stop offset="0.5" stopColor="#1E3A8A"/>
+      <stop offset="1" stopColor="#2563EB"/>
+    </linearGradient>
+  </defs>
+</svg>
